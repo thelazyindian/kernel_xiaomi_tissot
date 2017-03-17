@@ -23,10 +23,10 @@
 #include <linux/ratelimit.h>
 
 /* Do not directly use this function. Use OVERRIDE_CRED() instead. */
-const struct cred * override_fsids(struct sdcardfs_sb_info* sbi, struct sdcardfs_inode_info *info)
+const struct cred *override_fsids(struct sdcardfs_sb_info *sbi, struct sdcardfs_inode_info *info)
 {
-	struct cred * cred;
-	const struct cred * old_cred;
+	struct cred *cred;
+	const struct cred *old_cred;
 	uid_t uid;
 
 	cred = prepare_creds();
@@ -67,7 +67,7 @@ static int sdcardfs_create(struct inode *dir, struct dentry *dentry,
 	struct fs_struct *saved_fs;
 	struct fs_struct *copied_fs;
 
-	if(!check_caller_access_to_name(dir, &dentry->d_name)) {
+	if (!check_caller_access_to_name(dir, &dentry->d_name)) {
 		err = -EACCES;
 		goto out_eacces;
 	}
@@ -124,7 +124,7 @@ static int sdcardfs_unlink(struct inode *dir, struct dentry *dentry)
 	struct path lower_path;
 	const struct cred *saved_cred = NULL;
 
-	if(!check_caller_access_to_name(dir, &dentry->d_name)) {
+	if (!check_caller_access_to_name(dir, &dentry->d_name)) {
 		err = -EACCES;
 		goto out_eacces;
 	}
@@ -168,7 +168,38 @@ out_eacces:
 
 static int touch(char *abs_path, mode_t mode)
 {
+	int err;
+	struct dentry *lower_dentry;
+	struct dentry *lower_parent_dentry = NULL;
+	struct path lower_path;
+
+	OVERRIDE_CRED(SDCARDFS_SB(dir->i_sb));
+
+	sdcardfs_get_lower_path(dentry, &lower_path);
+	lower_dentry = lower_path.dentry;
+	lower_parent_dentry = lock_parent(lower_dentry);
+
+	err = vfs_symlink(lower_parent_dentry->d_inode, lower_dentry, symname);
+	if (err)
+		goto out;
+	err = sdcardfs_interpose(dentry, dir->i_sb, &lower_path);
+	if (err)
+		goto out;
+	fsstack_copy_attr_times(dir, sdcardfs_lower_inode(dir));
+	fsstack_copy_inode_size(dir, lower_parent_dentry->d_inode);
+
+out:
+	unlock_dir(lower_parent_dentry);
+	sdcardfs_put_lower_path(dentry, &lower_path);
+	REVERT_CRED();
+	return err;
+}
+#endif
+
+static int touch(char *abs_path, mode_t mode)
+{
 	struct file *filp = filp_open(abs_path, O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW, mode);
+
 	if (IS_ERR(filp)) {
 		if (PTR_ERR(filp) == -EEXIST) {
 			return 0;
@@ -199,7 +230,7 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 	struct qstr q_obb = QSTR_LITERAL("obb");
 	struct qstr q_data = QSTR_LITERAL("data");
 
-	if(!check_caller_access_to_name(dir, &dentry->d_name)) {
+	if (!check_caller_access_to_name(dir, &dentry->d_name)) {
 		err = -EACCES;
 		goto out_eacces;
 	}
@@ -248,12 +279,14 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 			/* if the sbi->obbpath is not available, the lower_path won't be
 			 * changed by setup_obb_dentry() but the lower path is saved to
 			 * its orig_path. this dentry will be revalidated later.
-			 * but now, the lower_path should be NULL */
+			 * but now, the lower_path should be NULL
+			 */
 			sdcardfs_put_reset_lower_path(dentry);
 
 			/* the newly created lower path which saved to its orig_path or
 			 * the lower_path is the base obbpath.
-			 * therefore, an additional path_get is required */
+			 * therefore, an additional path_get is required
+			 */
 			path_get(&lower_path);
 		} else
 			make_nomedia_in_obb = 1;
@@ -308,7 +341,7 @@ static int sdcardfs_rmdir(struct inode *dir, struct dentry *dentry)
 	struct path lower_path;
 	const struct cred *saved_cred = NULL;
 
-	if(!check_caller_access_to_name(dir, &dentry->d_name)) {
+	if (!check_caller_access_to_name(dir, &dentry->d_name)) {
 		err = -EACCES;
 		goto out_eacces;
 	}
@@ -317,7 +350,8 @@ static int sdcardfs_rmdir(struct inode *dir, struct dentry *dentry)
 	OVERRIDE_CRED(SDCARDFS_SB(dir->i_sb), saved_cred, SDCARDFS_I(dir));
 
 	/* sdcardfs_get_real_lower(): in case of remove an user's obb dentry
-	 * the dentry on the original path should be deleted. */
+	 * the dentry on the original path should be deleted.
+	 */
 	sdcardfs_get_real_lower(dentry, &lower_path);
 
 	lower_dentry = lower_path.dentry;
@@ -360,7 +394,7 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct path lower_old_path, lower_new_path;
 	const struct cred *saved_cred = NULL;
 
-	if(!check_caller_access_to_name(old_dir, &old_dentry->d_name) ||
+	if (!check_caller_access_to_name(old_dir, &old_dentry->d_name) ||
 		!check_caller_access_to_name(new_dir, &new_dentry->d_name)) {
 		err = -EACCES;
 		goto out_eacces;
@@ -544,6 +578,22 @@ static int sdcardfs_permission(struct vfsmount *mnt, struct inode *inode, int ma
 	 * So we just let they do the things.
 	 * If there are any security hole, just uncomment following if block.
 	 */
+#if 0
+	if (!err) {
+		/*
+		 * Permission check on lower_inode(=EXT4).
+		 * we check it with AID_MEDIA_RW permission
+		 */
+		struct inode *lower_inode;
+
+		OVERRIDE_CRED(SDCARDFS_SB(inode->sb));
+
+		lower_inode = sdcardfs_lower_inode(inode);
+		err = inode_permission(lower_inode, mask);
+
+		REVERT_CRED();
+	}
+#endif
 	return err;
 
 }
@@ -604,14 +654,15 @@ static int sdcardfs_setattr(struct vfsmount *mnt, struct dentry *dentry, struct 
 	/* prepare our own lower struct iattr (with the lower file) */
 	memcpy(&lower_ia, ia, sizeof(lower_ia));
 	/* Allow touch updating timestamps. A previous permission check ensures
-	 * we have write access. Changes to mode, owner, and group are ignored*/
+	 * we have write access. Changes to mode, owner, and group are ignored
+	 */
 	ia->ia_valid |= ATTR_FORCE;
 	err = inode_change_ok(&tmp, ia);
 
 	if (!err) {
 		/* check the Android group ID */
 		parent = dget_parent(dentry);
-		if(!check_caller_access_to_name(parent->d_inode, &dentry->d_name))
+		if (!check_caller_access_to_name(parent->d_inode, &dentry->d_name))
 			err = -EACCES;
 		dput(parent);
 	}
@@ -690,10 +741,12 @@ out_err:
 	return err;
 }
 
-static int sdcardfs_fillattr(struct vfsmount *mnt, struct inode *inode, struct kstat *stat)
+static int sdcardfs_fillattr(struct vfsmount *mnt,
+				struct inode *inode, struct kstat *stat)
 {
 	struct sdcardfs_inode_info *info = SDCARDFS_I(inode);
 	struct inode *top = grab_top(info);
+
 	if (!top)
 		return -EINVAL;
 
@@ -723,7 +776,7 @@ static int sdcardfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 	int err;
 
 	parent = dget_parent(dentry);
-	if(!check_caller_access_to_name(parent->d_inode, &dentry->d_name)) {
+	if (!check_caller_access_to_name(parent->d_inode, &dentry->d_name)) {
 		dput(parent);
 		return -EACCES;
 	}
