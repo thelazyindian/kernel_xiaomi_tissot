@@ -127,12 +127,10 @@ static int sdcardfs_hash_ci(const struct dentry *dentry,
 	unsigned long hash;
 
 	name = qstr->name;
-
 	len = qstr->len;
 
 	hash = init_name_hash();
 	while (len--)
-
 		hash = partial_name_hash(tolower(*name++), hash);
 	qstr->hash = end_name_hash(hash);
 
@@ -146,10 +144,7 @@ static int sdcardfs_cmp_ci(const struct dentry *parent,
 		const struct dentry *dentry,
 		unsigned int len, const char *str, const struct qstr *name)
 {
-	/* This function is copy of vfat_cmpi */
-
-
-
+	/* FIXME Should we support national language? */
 
 	if (name->len == len) {
 		if (str_n_case_eq(name->name, str, len))
