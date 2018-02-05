@@ -11,23 +11,15 @@
  * GNU General Public License for more details.
  */
 
-&int_codec {
-	status = "okay";
-	qcom,msm-hs-micbias-type = "internal";
+/dts-v1/;
+
+#include "msm8953_c6lite.dtsi"
+#include "msm8953-qrd-sku3_c6lite.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. MSM8953 QRD SKU3_C6A";
+	compatible = "qcom,msm8953-qrd-sku3",
+		   "qcom,msm8953-qrd", "qcom,msm8953", "qcom,qrd";
+	qcom,board-id= <0x0b 0x09>;
 };
 
-&pm8953_diangu_dig {
-	status = "okay";
-};
-
-&pm8953_diangu_analog {
-	status = "okay";
-};
-
-&wsa881x_i2c_f {
-	status = "okay";
-};
-
-&wsa881x_i2c_45 {
-	status = "okay";
-};
