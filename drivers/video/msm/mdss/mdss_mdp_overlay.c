@@ -1598,9 +1598,7 @@ static int __overlay_queue_pipes(struct msm_fb_data_type *mfd)
 		if (IS_ERR_VALUE(ret)) {
 			pr_warn("Unable to queue data for pnum=%d rect=%d\n",
 					pipe->num, pipe->multirect.num);
-
-			/*
-			 * If we fail for a multi-rect pipe, unstage both rects
+                        /* If we fail for a multi-rect pipe, unstage both rects
 			 * so we don't leave the pipe configured in multi-rect
 			 * mode with only one rectangle staged.
 			 */
