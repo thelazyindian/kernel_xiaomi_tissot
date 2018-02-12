@@ -1599,9 +1599,7 @@ static int __overlay_queue_pipes(struct msm_fb_data_type *mfd)
 		if (IS_ERR_VALUE(ret)) {
 			pr_warn("Unable to queue data for pnum=%d rect=%d\n",
 					pipe->num, pipe->multirect.num);
-
-			/*
-			 * If we fail for a multi-rect pipe, unstage both rects
+                        /* If we fail for a multi-rect pipe, unstage both rects
 			 * so we don't leave the pipe configured in multi-rect
 			 * mode with only one rectangle staged.
 			 */
@@ -4745,6 +4743,12 @@ static int mdss_mdp_hw_cursor_pipe_update(struct msm_fb_data_type *mfd,
 	req->transp_mask = img->bg_color & ~(0xff << var->transp.offset);
 
 	if (mfd->cursor_buf && (cursor->set & FB_CUR_SETIMAGE)) {
+		if (img->width * img->height * 4 > cursor_frame_size) {
+			pr_err("cursor image size is too large\n");
+			ret = -EINVAL;
+			goto done;
+		}
+
 		ret = copy_from_user(mfd->cursor_buf, img->data,
 				     img->width * img->height * 4);
 		if (ret) {
